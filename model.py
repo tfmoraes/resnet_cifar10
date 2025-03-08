@@ -1,8 +1,9 @@
-from typing import List
+from typing import List, Union
 
 import torch
 import torch.nn.functional as F
 from torch import layer_norm, nn
+
 
 
 class BasicBlock(nn.Module):
@@ -49,6 +50,7 @@ class BasicBlock(nn.Module):
 
 class BottleneckBlock(nn.Module):
     expansion = 4
+
     def __init__(self, in_channels: int, out_channels: int, stride: int = 1):
         super().__init__()
 
@@ -56,7 +58,12 @@ class BottleneckBlock(nn.Module):
         self.bn1 = nn.BatchNorm2d(out_channels)
 
         self.conv2 = nn.Conv2d(
-            out_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False
+            out_channels,
+            out_channels,
+            kernel_size=3,
+            stride=stride,
+            padding=1,
+            bias=False,
         )
         self.bn2 = nn.BatchNorm2d(out_channels)
 
@@ -87,11 +94,11 @@ class BottleneckBlock(nn.Module):
         x += residual
         return F.relu(x)
 
+ResnetBlock = Union[type[BasicBlock], type[BottleneckBlock]]
+
 
 class ResNet(nn.Module):
-    def __init__(
-        self, block: nn.Module, num_blocks: List[int], num_classes: int = 10
-    ):
+    def __init__(self, block: ResnetBlock, num_blocks: List[int], num_classes: int = 10):
         super().__init__()
 
         self.in_channels = 64
@@ -107,8 +114,10 @@ class ResNet(nn.Module):
 
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512 * block.expansion, num_classes)
-        
-    def _make_layer(self, block: nn.Module,  out_channels: int, num_blocks: int, stride: int) -> nn.Module:
+
+    def _make_layer(
+        self, block: ResnetBlock, out_channels: int, num_blocks: int, stride: int
+    ) -> nn.Module:
         strides = [stride] + [1] * (num_blocks - 1)
         layers = []
         for stride in strides:
@@ -128,22 +137,77 @@ class ResNet(nn.Module):
         return x
 
 
+class ResNetCIFAR(nn.Module):
+    def __init__(self, block: ResnetBlock, num_blocks: List[int], num_classes: int = 10):
+        super().__init__()
+
+        self.in_channels = 16
+
+        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(16)
+
+        # Stages
+        self.layer1 = self._make_layer(block, 16, num_blocks[0], stride=1)
+        self.layer2 = self._make_layer(block, 32, num_blocks[1], stride=2)
+        self.layer3 = self._make_layer(block, 64, num_blocks[2], stride=2)
+
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Linear(64 * block.expansion, num_classes)
+
+    def _make_layer(
+        self, block: ResnetBlock, out_channels: int, num_blocks: int, stride: int
+    ) -> nn.Module:
+        layers = []
+        layers.append(block(self.in_channels, out_channels, stride))
+        self.in_channels = out_channels * block.expansion
+        for _ in range(1, num_blocks):
+            layers.append(block(self.in_channels, out_channels, stride=1))
+        return nn.Sequential(*layers)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = F.relu(self.bn1(self.conv1(x)))
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.avgpool(x)
+        x = torch.flatten(x, 1)
+        x = self.fc(x)
+        return x
+
+
 class ResNet18(ResNet):
-    def __init__(self, num_classes: int=10):
+    def __init__(self, num_classes: int = 10):
         super().__init__(BasicBlock, [2, 2, 2, 2], num_classes)
 
 
+class ResNet20(ResNetCIFAR):
+    def __init__(self, num_classes: int = 10):
+        super().__init__(BasicBlock, [3, 3, 3], num_classes)
+
+
 class ResNet34(ResNet):
-    def __init__(self, num_classes: int=10):
+    def __init__(self, num_classes: int = 10):
         super().__init__(BasicBlock, [3, 4, 6, 3], num_classes)
 
+
 class ResNet50(ResNet):
-    def __init__(self, num_classes: int=10):
+    def __init__(self, num_classes: int = 10):
         super().__init__(BottleneckBlock, [3, 4, 6, 3], num_classes)
 
+
+class ResNet56(ResNetCIFAR):
+    def __init__(self, num_classes: int = 10):
+        super().__init__(BasicBlock, [9, 9, 9], num_classes)
+
+
 class ResNet101(ResNet):
-    def __init__(self, num_classes: int=10):
+    def __init__(self, num_classes: int = 10):
         super().__init__(BottleneckBlock, [3, 4, 23, 3], num_classes)
+
+
+class ResNet110(ResNetCIFAR):
+    def __init__(self, num_classes: int = 10):
+        super().__init__(BasicBlock, [18, 18, 18], num_classes)
 
 
 class ResidualBlock(nn.Module):
