@@ -240,7 +240,7 @@ def train(
 
 
         if custom_test:
-            fig, axes = plt.subplots(2, 5, figsize=(15, 6))
+            fig, axes = plt.subplots(2, 5, figsize=(18, 8))
             axes = axes.ravel()
             for ax, (image, _class) in zip(axes, dataset_custom_test):
                 transformed_image = transform_custom(image).to(device)
@@ -252,6 +252,8 @@ def train(
                     color = 'red'
                 ax.imshow(image)
                 ax.set_title(dataset_custom_test.classes[predicted], color=color)
+                ax.axis('off')
+            fig.tight_layout()
             writer.add_figure('custom dataset', fig, epoch)
 
         tqdm.write(
