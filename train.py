@@ -127,6 +127,39 @@ def _evaluate(
     return avg_validation_loss, avg_validation_accuracy
 
 
+def predict(
+    model: nn.Module, images: torch.Tensor, device: torch.device
+) -> torch.Tensor:
+    model.eval()
+    with torch.no_grad():
+        output = model(images.to(device))
+        _, predicted = torch.max(output, 1)
+    return predicted
+
+
+def plot_custom_test(
+    model: nn.Module,
+    images: torch.Tensor,
+    dataset_custom_test: FilenameClassDataset,
+    epoch,
+    writer: SummaryWriter,
+    device: torch.device,
+) -> None:
+    fig, axes = plt.subplots(2, 5, figsize=(17, 7))
+    axes = axes.ravel()
+    predicted = predict(model, images, device)
+    for ax, (image, _class), _class_pred in zip(axes, dataset_custom_test, predicted):
+        if _class_pred == _class:
+            color = "blue"
+        else:
+            color = "red"
+        ax.imshow(image)
+        ax.set_title(dataset_custom_test.classes[_class_pred], color=color)
+        ax.axis("off")
+    fig.tight_layout()
+    writer.add_figure("custom dataset", fig, epoch)
+
+
 def train(
     model: nn.Module,
     batch_size: int = 128,
@@ -188,8 +221,9 @@ def train(
 
     custom_test = True
     try:
-        dataset_custom_test = FilenameClassDataset(
-            root="./datasets/custom/"
+        dataset_custom_test = FilenameClassDataset(root="./datasets/custom/")
+        custom_test_images_tensor = torch.stack(
+            [transform_custom(i[0]) for i in dataset_custom_test]
         )
     except FileNotFoundError:
         custom_test = False
@@ -238,23 +272,15 @@ def train(
         writer.add_scalar("Accuracy/val", avg_val_accuracy, epoch)
         writer.add_scalar("Learning rate", current_lr, epoch)
 
-
         if custom_test:
-            fig, axes = plt.subplots(2, 5, figsize=(18, 8))
-            axes = axes.ravel()
-            for ax, (image, _class) in zip(axes, dataset_custom_test):
-                transformed_image = transform_custom(image).to(device)
-                output = model(transformed_image.unsqueeze(0))
-                _, predicted = torch.max(output, 1)
-                if predicted == _class:
-                    color = 'blue'
-                else:
-                    color = 'red'
-                ax.imshow(image)
-                ax.set_title(dataset_custom_test.classes[predicted], color=color)
-                ax.axis('off')
-            fig.tight_layout()
-            writer.add_figure('custom dataset', fig, epoch)
+            plot_custom_test(
+                model,
+                custom_test_images_tensor,
+                dataset_custom_test,
+                epoch,
+                writer,
+                device,
+            )
 
         tqdm.write(
             f"Epoch {epoch + 1}/{epochs} | train loss: {avg_train_loss:.6f} | train acc: {avg_train_accuracy:.6f} | val loss: {avg_val_loss:.6f} | val acc: {avg_val_accuracy:.6f}"
@@ -275,12 +301,23 @@ def train(
     avg_test_loss, avg_test_accuracy = _evaluate(
         loader_test, model, criterion, metric_fn, device
     )
-
     final_metrics = {"accuracy": avg_test_accuracy, "loss": avg_test_loss}
+    if custom_test:
+        # Plotting with best weights
+        plot_custom_test(
+            model,
+            custom_test_images_tensor,
+            dataset_custom_test,
+            epochs,
+            writer,
+            device,
+        )
+
     writer.add_hparams(hyperparams, final_metrics, run_name=f"exp_{timestamp}")
     tqdm.write(
         f"Best weight: loss {avg_test_loss:.6f}, accuracy{avg_test_accuracy:.6f}"
     )
+
 
 
 if __name__ == "__main__":
