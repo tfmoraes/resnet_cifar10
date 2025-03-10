@@ -1,11 +1,12 @@
 import argparse
 import datetime
-from typing import Callable, Literal
+from typing import Callable
 
+import matplotlib.pyplot as plt
 import torch
-from torch import minimum, nn, optim
-from torch.optim.lr_scheduler import CosineAnnealingLR, ReduceLROnPlateau
-from torch.utils.data import DataLoader, random_split
+from torch import nn, optim
+from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.utils.data import DataLoader
 from torch.utils.tensorboard.writer import SummaryWriter
 from torchmetrics import Metric
 from torchmetrics.classification import MulticlassAccuracy
@@ -13,6 +14,7 @@ from torchvision import datasets, transforms
 from tqdm import tqdm, trange
 
 from model import ResNet18, ResNet20, ResNet34, ResNet50, ResNet56, ResNet101, ResNet110
+from utils import EarlyStopper, FilenameClassDataset, ResizePad
 
 LossFunctionType = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 
@@ -125,48 +127,6 @@ def _evaluate(
     return avg_validation_loss, avg_validation_accuracy
 
 
-class EarlyStopper:
-    def __init__(
-        self,
-        patience: int = 5,
-        min_delta: float = 0.0,
-        mode: Literal["min", "max"] = "min",
-    ):
-        """
-        patience: number of epochs to wait before stopping. if 0 deactivate early stop
-        min_delta: minimun change to qualify as improvement
-        mode: 'min' (for loss) or 'max' (for accuracy)
-        """
-
-        self.patience = patience
-        self.min_delta = min_delta
-        self.mode = mode
-        self.counter = 0
-        self.best_metric = None
-
-    def __call__(self, metric: float) -> bool:
-        if self.patience == 0:
-            return False
-
-        if self.best_metric is None:
-            self.best_metric = metric
-            return False
-
-        if self.mode == "min":
-            improved = metric < self.best_metric - self.min_delta
-        else:
-            improved = metric > self.best_metric + self.min_delta
-
-        if improved:
-            self.best_metric = metric
-            self.counter = 0
-        else:
-            self.counter += 1
-            if self.counter >= self.patience:
-                return True
-        return False
-
-
 def train(
     model: nn.Module,
     batch_size: int = 128,
@@ -203,6 +163,17 @@ def train(
         ]
     )
 
+    transform_custom = transforms.Compose(
+        [
+            ResizePad((256, 256)),  # Your custom resize + pad transform
+            transforms.ToTensor(),  # Convert PIL Image to tensor
+            transforms.Normalize(
+                mean=[0.485, 0.456, 0.406],  # ImageNet stats (adjust for your data)
+                std=[0.229, 0.224, 0.225],
+            ),
+        ]
+    )
+
     dataset_train = datasets.CIFAR10(
         root="./datasets/", train=True, download=True, transform=transform_train
     )
@@ -215,12 +186,22 @@ def train(
         root="./datasets/", train=False, download=True, transform=transform
     )
 
+    custom_test = True
+    try:
+        dataset_custom_test = FilenameClassDataset(
+            root="./datasets/custom/"
+        )
+    except FileNotFoundError:
+        custom_test = False
+
     loader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True)
     loader_test = DataLoader(dataset_test, batch_size=batch_size, shuffle=False)
 
     model.to(device)
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.SGD(model.parameters(), lr=learning_rate, momentum=0.9, weight_decay=5e-4)
+    optimizer = optim.SGD(
+        model.parameters(), lr=learning_rate, momentum=0.9, weight_decay=5e-4
+    )
     scheduler = CosineAnnealingLR(optimizer, T_max=200)
     metric_fn = MulticlassAccuracy(num_classes=10).to(device)
 
@@ -237,9 +218,7 @@ def train(
     best_model_path = "best_model.pth"
     timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     log_dir = f"runs/cifar10_{timestamp}"
-    writer = SummaryWriter(
-        log_dir=log_dir
-    )
+    writer = SummaryWriter(log_dir=log_dir)
     writer.add_graph(model, torch.randn(1, 3, 32, 32).to(device))
     early_stopper = EarlyStopper(patience=patience, mode="max")
     for epoch in trange(epochs):
@@ -258,6 +237,22 @@ def train(
         writer.add_scalar("Loss/val", avg_val_loss, epoch)
         writer.add_scalar("Accuracy/val", avg_val_accuracy, epoch)
         writer.add_scalar("Learning rate", current_lr, epoch)
+
+
+        if custom_test:
+            fig, axes = plt.subplots(2, 5, figsize=(15, 6))
+            axes = axes.ravel()
+            for ax, (image, _class) in zip(axes, dataset_custom_test):
+                transformed_image = transform_custom(image).to(device)
+                output = model(transformed_image.unsqueeze(0))
+                _, predicted = torch.max(output, 1)
+                if predicted == _class:
+                    color = 'blue'
+                else:
+                    color = 'red'
+                ax.imshow(image)
+                ax.set_title(dataset_custom_test.classes[predicted], color=color)
+            writer.add_figure('custom dataset', fig, epoch)
 
         tqdm.write(
             f"Epoch {epoch + 1}/{epochs} | train loss: {avg_train_loss:.6f} | train acc: {avg_train_accuracy:.6f} | val loss: {avg_val_loss:.6f} | val acc: {avg_val_accuracy:.6f}"
@@ -281,8 +276,9 @@ def train(
 
     final_metrics = {"accuracy": avg_test_accuracy, "loss": avg_test_loss}
     writer.add_hparams(hyperparams, final_metrics, run_name=f"exp_{timestamp}")
-    tqdm.write(f'Best weight: loss {avg_test_loss:.6f}, accuracy{avg_test_accuracy:.6f}')
-
+    tqdm.write(
+        f"Best weight: loss {avg_test_loss:.6f}, accuracy{avg_test_accuracy:.6f}"
+    )
 
 
 if __name__ == "__main__":

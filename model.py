@@ -2,8 +2,7 @@ from typing import List, Union
 
 import torch
 import torch.nn.functional as F
-from torch import layer_norm, nn
-
+from torch import nn
 
 
 class BasicBlock(nn.Module):
@@ -94,11 +93,14 @@ class BottleneckBlock(nn.Module):
         x += residual
         return F.relu(x)
 
+
 ResnetBlock = Union[type[BasicBlock], type[BottleneckBlock]]
 
 
 class ResNet(nn.Module):
-    def __init__(self, block: ResnetBlock, num_blocks: List[int], num_classes: int = 10):
+    def __init__(
+        self, block: ResnetBlock, num_blocks: List[int], num_classes: int = 10
+    ):
         super().__init__()
 
         self.in_channels = 64
@@ -138,7 +140,9 @@ class ResNet(nn.Module):
 
 
 class ResNetCIFAR(nn.Module):
-    def __init__(self, block: ResnetBlock, num_blocks: List[int], num_classes: int = 10):
+    def __init__(
+        self, block: ResnetBlock, num_blocks: List[int], num_classes: int = 10
+    ):
         super().__init__()
 
         self.in_channels = 16
@@ -294,3 +298,8 @@ class Old_ResNet(nn.Module):
         x = torch.flatten(x, 1)
         x = self.fc(x)
         return x
+
+
+ResnetModel = Union[
+    ResNet18, ResNet20, ResNet34, ResNet50, ResNet56, ResNet101, ResNet110
+]
