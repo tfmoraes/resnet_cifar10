@@ -244,7 +244,7 @@ def train(
         "batch_size": batch_size,
         "learning_rate": learning_rate,
         "num_epochs": epochs,
-        "optimizer": scheduler.__class__.__name__,
+        "optimizer": optimizer.__class__.__name__,
         "scheduler": scheduler.__class__.__name__,
     }
 
