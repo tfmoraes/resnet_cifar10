@@ -198,7 +198,7 @@ def train(
 
     transform_custom = transforms.Compose(
         [
-            ResizePad((256, 256)),  # Your custom resize + pad transform
+            ResizePad((32, 32)),  # Your custom resize + pad transform
             transforms.ToTensor(),  # Convert PIL Image to tensor
             transforms.Normalize(
                 mean=[0.485, 0.456, 0.406],  # ImageNet stats (adjust for your data)
